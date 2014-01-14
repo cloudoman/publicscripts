@@ -100,8 +100,7 @@ function CreateUsers()
     $users = ([xml] (gc $fileName)).users.user
     foreach ($user in $users)
     {
-        Uninstall-User -Username $user.name
-        Install-User -Username $user.name -Password $user.password
+        Create-User $user.name $user.password
         $groups = $user.groups.Split(',')
         foreach ($group in $groups)
         {
@@ -128,6 +127,57 @@ function Disable-ComplexPasswords()
   if (test-path $fileName) {rm -force $fileName}
   if (test-path $newFile) {rm -force $newFile}  
 }
+
+function Create-User
+{
+    Param(      
+        [Parameter(Mandatory=$true)] [string] $userName,
+        [Parameter(Mandatory=$true)] [string] $password
+    )
+
+    # Delete User if already exists
+    if (Check-UserExists $userName) {Delete-User $userName}
+
+    # Create a User
+    $objOu = [ADSI]"WinNT://$env:computername"
+    $objUser = $objOU.Create("User", $userName)
+    $objUser.setpassword($password)
+    $objUser.SetInfo()
+
+    # Set User Password to Never Expire
+    $ADS_UF_DONT_EXPIRE_PASSWD = 65536
+    $u = [adsi]"WinNT://$env:computername/$userName,user"
+    $u.invokeSet("userFlags", ($u.userFlags[0] -BOR $ADS_UF_DONT_EXPIRE_PASSWD))
+    $u.commitChanges()
+
+}
+
+function Delete-User
+{
+    Param(      
+        [Parameter(Mandatory=$true)] [string] $userName
+    )
+
+    $objOu = [ADSI]"WinNT://$env:ComputerName" 
+    $objOu.Delete("User",$userName) 
+}
+
+function Check-UserExists
+{
+    Param(      
+        [Parameter(Mandatory=$true)] [string] $userName
+    )
+    $objComputer = [ADSI]("WinNT://$env:computername")
+
+    $colUsers = ($objComputer.psbase.children |
+                    Where-Object {$_.psBase.schemaClassName -eq "User"} |
+                        Select-Object -expand Name)
+
+    $blnFound = $colUsers -contains "$userName"
+
+    $blnFound
+}
+
 
 
 $region = (new-object net.webclient).DownloadString("http://169.254.169.254/latest/meta-data/placement/availability-zone") -replace ".$"
